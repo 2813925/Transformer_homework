@@ -294,26 +294,6 @@ class MultiHeadAttention(nn.Module):
         return self.W_O(output)
 ```
 
-##  常见问题
-
-**Q: 下载数据集失败？**
-A: 可以手动从 https://s3.amazonaws.com/research.metamind.io/wikitext/wikitext-2-raw-v1.zip 下载
-
-**Q: CUDA out of memory？**
-A: 减小batch_size (如改为32或16)，或减小模型规模 (d_model=128)
-
-**Q: 训练速度太慢？**
-A: 确保使用GPU训练。检查 `torch.cuda.is_available()` 是否返回True
-
-**Q: Loss不下降？**
-A: 检查学习率是否合适，可以尝试降低到5e-5；确保数据预处理正确
-
-##  参考文献
-
-[1] Vaswani, A., et al. (2017). Attention is all you need. *Advances in Neural Information Processing Systems*, 30.
-
-[2] Merity, S., et al. (2016). Pointer sentinel mixture models. *arXiv preprint arXiv:1609.07843*.
-
 ##  信息
 
 
