@@ -206,7 +206,7 @@ PE(pos, 2i+1) = cos(pos / 10000^(2i/d_model))
 
 **训练时间估计** (默认配置):
 - CPU: ~4-6小时/20 epochs
-- GPU (RTX 3060): ~30-45分钟/20 epochs
+- GPU (RTX 3090): ~30-45分钟/20 epochs
 
 ##  完整命令行示例
 
