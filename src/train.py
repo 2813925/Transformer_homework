@@ -1,5 +1,5 @@
 """
-Transformer 训练脚本
+Transformer 训练脚本 (机器翻译任务)
 包含完整的训练循环、验证、模型保存等功能
 """
 import torch
@@ -14,8 +14,20 @@ import argparse
 import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+import sys
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from model import Transformer, TransformerEncoderOnly
+
+# 确保data目录存在
+os.makedirs(args.data_dir, exist_ok=True)
+
+# 从上传的model.py导入
+import importlib.util
+spec = importlib.util.spec_from_file_location("model", "src/model.py")
+model_module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(model_module)
+Transformer = model_module.Transformer
+
 from data_loader import prepare_data, get_data_loaders
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "4"  # 或 "5"，或 "4,5" 如果你想用多卡
@@ -82,7 +94,7 @@ class LabelSmoothingLoss(nn.Module):
 
 
 def train_epoch(model, dataloader, optimizer, scheduler, criterion, 
-                device, clip_grad=1.0, mode='encoder'):
+                device, clip_grad=1.0):
     """训练一个epoch"""
     model.train()
     total_loss = 0
@@ -91,26 +103,17 @@ def train_epoch(model, dataloader, optimizer, scheduler, criterion,
     progress_bar = tqdm(dataloader, desc='Training')
     
     for batch in progress_bar:
-        if mode == 'encoder':
-            src, tgt = batch
-            src, tgt = src.to(device), tgt.to(device)
-            
-            # 前向传播
-            output = model(src)  # [batch_size, seq_len, vocab_size]
-            
-        elif mode == 'seq2seq':
-            src, tgt_input, tgt_output = batch
-            src = src.to(device)
-            tgt_input = tgt_input.to(device)
-            tgt_output = tgt_output.to(device)
-            
-            # 前向传播
-            output = model(src, tgt_input)
-            tgt = tgt_output
+        src, tgt_input, tgt_output = batch
+        src = src.to(device)
+        tgt_input = tgt_input.to(device)
+        tgt_output = tgt_output.to(device)
+        
+        # 前向传播
+        output = model(src, tgt_input)  # [batch_size, tgt_len, vocab_size]
         
         # 计算损失
         output_flat = output.view(-1, output.size(-1))
-        tgt_flat = tgt.contiguous().view(-1)
+        tgt_flat = tgt_output.contiguous().view(-1)
         
         loss = criterion(torch.log_softmax(output_flat, dim=-1), tgt_flat)
         
@@ -128,7 +131,7 @@ def train_epoch(model, dataloader, optimizer, scheduler, criterion,
             scheduler.step()
         
         # 统计
-        n_tokens = (tgt != 0).sum().item()
+        n_tokens = (tgt_output != 0).sum().item()
         total_loss += loss.item() * n_tokens
         total_tokens += n_tokens
         
@@ -141,7 +144,7 @@ def train_epoch(model, dataloader, optimizer, scheduler, criterion,
     return total_loss / total_tokens
 
 
-def evaluate(model, dataloader, criterion, device, mode='encoder'):
+def evaluate(model, dataloader, criterion, device):
     """评估模型"""
     model.eval()
     total_loss = 0
@@ -149,25 +152,19 @@ def evaluate(model, dataloader, criterion, device, mode='encoder'):
     
     with torch.no_grad():
         for batch in tqdm(dataloader, desc='Evaluating'):
-            if mode == 'encoder':
-                src, tgt = batch
-                src, tgt = src.to(device), tgt.to(device)
-                output = model(src)
-                
-            elif mode == 'seq2seq':
-                src, tgt_input, tgt_output = batch
-                src = src.to(device)
-                tgt_input = tgt_input.to(device)
-                tgt_output = tgt_output.to(device)
-                output = model(src, tgt_input)
-                tgt = tgt_output
+            src, tgt_input, tgt_output = batch
+            src = src.to(device)
+            tgt_input = tgt_input.to(device)
+            tgt_output = tgt_output.to(device)
+            
+            output = model(src, tgt_input)
             
             output_flat = output.view(-1, output.size(-1))
-            tgt_flat = tgt.contiguous().view(-1)
+            tgt_flat = tgt_output.contiguous().view(-1)
             
             loss = criterion(torch.log_softmax(output_flat, dim=-1), tgt_flat)
             
-            n_tokens = (tgt != 0).sum().item()
+            n_tokens = (tgt_output != 0).sum().item()
             total_loss += loss.item() * n_tokens
             total_tokens += n_tokens
     
@@ -218,45 +215,33 @@ def train(args):
     
     # 准备数据
     print("\n准备数据...")
-    train_dataset, valid_dataset, test_dataset, vocab = prepare_data(
+    train_dataset, valid_dataset, test_dataset, src_vocab, tgt_vocab = prepare_data(
         data_dir=args.data_dir,
-        vocab_path=os.path.join(args.data_dir, 'vocab.pkl'),
+        src_vocab_path=os.path.join(args.data_dir, 'vocab_en.pkl'),
+        tgt_vocab_path=os.path.join(args.data_dir, 'vocab_de.pkl'),
         min_freq=args.min_freq,
-        max_len=args.max_len,
-        mode=args.mode
+        max_len=args.max_len
     )
     
     train_loader, valid_loader, test_loader = get_data_loaders(
         train_dataset, valid_dataset, test_dataset,
         batch_size=args.batch_size,
-        mode=args.mode,
         num_workers=args.num_workers
     )
     
-    # 创建模型
+    # 创建模型 (Encoder-Decoder for Machine Translation)
     print("\n创建模型...")
-    if args.mode == 'encoder':
-        model = TransformerEncoderOnly(
-            vocab_size=vocab.n_words,
-            d_model=args.d_model,
-            n_heads=args.n_heads,
-            n_layers=args.n_layers,
-            d_ff=args.d_ff,
-            dropout=args.dropout,
-            max_len=args.max_len
-        )
-    elif args.mode == 'seq2seq':
-        model = Transformer(
-            src_vocab_size=vocab.n_words,
-            tgt_vocab_size=vocab.n_words,
-            d_model=args.d_model,
-            n_heads=args.n_heads,
-            n_encoder_layers=args.n_layers,
-            n_decoder_layers=args.n_layers,
-            d_ff=args.d_ff,
-            dropout=args.dropout,
-            max_len=args.max_len
-        )
+    model = Transformer(
+        src_vocab_size=src_vocab.n_words,
+        tgt_vocab_size=tgt_vocab.n_words,
+        d_model=args.d_model,
+        n_heads=args.n_heads,
+        n_encoder_layers=args.n_layers,
+        n_decoder_layers=args.n_layers,
+        d_ff=args.d_ff,
+        dropout=args.dropout,
+        max_len=args.max_len
+    )
     
     model = model.to(device)
     
@@ -267,7 +252,7 @@ def train(args):
     # 定义损失函数
     if args.label_smoothing > 0:
         criterion = LabelSmoothingLoss(
-            vocab_size=vocab.n_words,
+            vocab_size=tgt_vocab.n_words,
             padding_idx=0,
             smoothing=args.label_smoothing
         )
@@ -301,11 +286,11 @@ def train(args):
         # 训练
         train_loss = train_epoch(
             model, train_loader, optimizer, scheduler, criterion,
-            device, args.clip_grad, args.mode
+            device, args.clip_grad
         )
         
         # 验证
-        valid_loss = evaluate(model, valid_loader, criterion, device, args.mode)
+        valid_loss = evaluate(model, valid_loader, criterion, device)
         
         # 计算perplexity
         train_ppl = math.exp(min(train_loss, 100))
@@ -329,7 +314,8 @@ def train(args):
                 'optimizer_state_dict': optimizer.state_dict(),
                 'train_loss': train_loss,
                 'valid_loss': valid_loss,
-                'vocab': vocab,
+                'src_vocab': src_vocab,
+                'tgt_vocab': tgt_vocab,
                 'args': vars(args)
             }
             
@@ -340,7 +326,7 @@ def train(args):
     
     # 测试
     print("\n在测试集上评估...")
-    test_loss = evaluate(model, test_loader, criterion, device, args.mode)
+    test_loss = evaluate(model, test_loader, criterion, device)
     test_ppl = math.exp(min(test_loss, 100))
     print(f'Test Loss: {test_loss:.4f} | Test PPL: {test_ppl:.2f}')
     
@@ -362,7 +348,9 @@ def train(args):
         'model_params': {
             'total': total_params,
             'trainable': trainable_params
-        }
+        },
+        'src_vocab_size': src_vocab.n_words,
+        'tgt_vocab_size': tgt_vocab.n_words
     }
     
     log_path = os.path.join('results', f'{args.exp_name}_log.json')
@@ -372,7 +360,7 @@ def train(args):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Transformer训练脚本')
+    parser = argparse.ArgumentParser(description='Transformer训练脚本 (机器翻译)')
     
     # 数据参数
     parser.add_argument('--data_dir', type=str, default='data',
@@ -381,9 +369,6 @@ def main():
                        help='最小词频')
     parser.add_argument('--max_len', type=int, default=128,
                        help='最大序列长度')
-    parser.add_argument('--mode', type=str, default='encoder',
-                       choices=['encoder', 'seq2seq'],
-                       help='模型模式: encoder或seq2seq')
     
     # 模型参数
     parser.add_argument('--d_model', type=int, default=256,
@@ -391,7 +376,7 @@ def main():
     parser.add_argument('--n_heads', type=int, default=4,
                        help='注意力头数')
     parser.add_argument('--n_layers', type=int, default=4,
-                       help='层数')
+                       help='Encoder和Decoder层数')
     parser.add_argument('--d_ff', type=int, default=1024,
                        help='前馈网络维度')
     parser.add_argument('--dropout', type=float, default=0.1,
@@ -420,7 +405,7 @@ def main():
                        help='随机种子')
     parser.add_argument('--save_dir', type=str, default='checkpoints',
                        help='模型保存目录')
-    parser.add_argument('--exp_name', type=str, default='transformer',
+    parser.add_argument('--exp_name', type=str, default='transformer_mt',
                        help='实验名称')
     parser.add_argument('--num_workers', type=int, default=0,
                        help='数据加载线程数')
@@ -428,7 +413,7 @@ def main():
     args = parser.parse_args()
     
     print("=" * 80)
-    print("Transformer 训练配置:")
+    print("Transformer 训练配置 (机器翻译 EN->DE):")
     print("=" * 80)
     for arg, value in sorted(vars(args).items()):
         print(f"{arg:20s}: {value}")

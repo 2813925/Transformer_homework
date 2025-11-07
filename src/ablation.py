@@ -1,5 +1,5 @@
 """
-消融实验脚本
+消融实验脚本 (机器翻译任务)
 测试不同组件对模型性能的影响
 """
 import torch
@@ -23,11 +23,6 @@ def run_ablation_study(base_args):
             'name': 'baseline',
             'description': '完整模型 (基线)',
             'modifications': {}
-        },
-        {
-            'name': 'no_positional_encoding',
-            'description': '移除位置编码',
-            'modifications': {'use_pos_encoding': False}
         },
         {
             'name': 'fewer_heads',
@@ -72,7 +67,7 @@ def run_ablation_study(base_args):
     ]
     
     print("=" * 80)
-    print("开始消融实验")
+    print("开始消融实验 (机器翻译任务)")
     print("=" * 80)
     
     for i, exp in enumerate(experiments, 1):
@@ -183,13 +178,12 @@ def plot_ablation_results(results_df):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Transformer消融实验')
+    parser = argparse.ArgumentParser(description='Transformer消融实验 (机器翻译)')
     
-    # 基础配置 (与train.py相同)
+    # 基础配置
     parser.add_argument('--data_dir', type=str, default='data')
     parser.add_argument('--min_freq', type=int, default=2)
     parser.add_argument('--max_len', type=int, default=128)
-    parser.add_argument('--mode', type=str, default='encoder')
     
     # 模型参数 (基线配置)
     parser.add_argument('--d_model', type=int, default=256)
@@ -213,7 +207,6 @@ def main():
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--save_dir', type=str, default='checkpoints')
     parser.add_argument('--num_workers', type=int, default=0)
-    parser.add_argument('--use_pos_encoding', type=bool, default=True)
     
     args = parser.parse_args()
     

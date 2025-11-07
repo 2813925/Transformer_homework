@@ -1,12 +1,12 @@
-# Transformer 从零实现
+# Transformer 从零实现 - 机器翻译任务
 
-基于PyTorch的Transformer完整实现，包含Encoder-Decoder架构、训练流程和消融实验。
+基于PyTorch的Transformer完整实现，在IWSLT2017 EN-DE机器翻译数据集上训练。
 
 ##  项目概述
 
 本项目从零实现了完整的Transformer模型，用于"大模型基础与应用"课程期中作业。主要特性：
 
-- ✅ **完整架构**: 实现Encoder和Decoder，支持Encoder-only和完整Seq2Seq模式
+- ✅ **完整架构**: 实现完整的Encoder-Decoder架构用于机器翻译
 - ✅ **核心组件**: Multi-Head Attention、Position-wise FFN、Residual+LayerNorm、Positional Encoding
 - ✅ **训练稳定性**: AdamW优化器、学习率warmup、梯度裁剪、标签平滑
 - ✅ **消融实验**: 系统性测试各组件对性能的影响
@@ -17,8 +17,8 @@
 ```
 transformer_project/
 ├── src/
-│   ├── model.py           # Transformer模型实现
-│   ├── data_loader.py     # 数据加载和预处理
+│   ├── model.py           # Transformer模型实现 (Encoder-Decoder)
+│   ├── data_loader.py     # 数据加载和预处理 (机器翻译)
 │   ├── train.py           # 训练脚本
 │   └── ablation.py        # 消融实验脚本
 ├── scripts/
@@ -34,17 +34,18 @@ transformer_project/
 
 ##  数据集
 
-**使用数据集**: WikiText-2
+**使用数据集**: IWSLT2017 (EN↔DE)
 
-- **描述**: 约2M tokens的语言建模数据集，来自Wikipedia优质文章
-- **任务类型**: 语言建模 (Language Modeling)
+- **描述**: 机器翻译数据集，英语-德语句对
+- **任务类型**: 机器翻译 (Machine Translation)
 - **数据规模**: 
-  - 训练集: ~600K tokens
-  - 验证集: ~60K tokens  
-  - 测试集: ~60K tokens
-- **下载链接**: https://blog.salesforceairesearch.com/the-wikitext-long-term-dependency-language-modeling-dataset/
+  - 训练集: ~206K 句对
+  - 验证集: ~888 句对  
+  - 测试集: ~1,568 句对
+- **来源**: IWSLT 2017评测任务
+- **Hugging Face链接**: https://huggingface.co/datasets/iwslt2017
 
-
+## ️ 快速开始
 
 ### 1. 环境配置
 
@@ -54,7 +55,7 @@ conda create -n transformer python=3.10
 conda activate transformer
 
 # 安装依赖
-pip install torch numpy matplotlib tqdm pandas
+pip install torch numpy matplotlib tqdm pandas datasets
 # 或
 pip install -r requirements.txt
 ```
@@ -66,27 +67,25 @@ pip install -r requirements.txt
 python scripts/download_data.py
 ```
 
-**方法2: 手动下载**
-1. 访问 https://s3.amazonaws.com/research.metamind.io/wikitext/wikitext-2-raw-v1.zip
-2. 下载并解压到 `data/` 目录
-3. 确保目录结构为:
+数据将被下载并保存为:
 ```
 data/
-├── wiki.train.tokens
-├── wiki.valid.tokens
-└── wiki.test.tokens
+├── train.en  # 英语训练集
+├── train.de  # 德语训练集
+├── valid.en  # 英语验证集
+├── valid.de  # 德语验证集
+├── test.en   # 英语测试集
+└── test.de   # 德语测试集
 ```
+
+**方法2: 手动准备**
+如果自动下载失败，可以从Hugging Face手动下载数据集，并按照上述格式组织。
 
 ### 3. 训练模型
 
-**训练Encoder-only模型 (语言建模)**
-```bash
-bash scripts/run.sh encoder
-```
-
 **训练完整Encoder-Decoder模型**
 ```bash
-bash scripts/run.sh seq2seq
+bash scripts/run.sh train
 ```
 
 **运行消融实验**
@@ -99,7 +98,6 @@ bash scripts/run.sh ablation
 ```bash
 python src/train.py \
   --data_dir data \
-  --mode encoder \
   --d_model 256 \
   --n_heads 4 \
   --n_layers 4 \
@@ -137,6 +135,11 @@ PE(pos, 2i) = sin(pos / 10000^(2i/d_model))
 PE(pos, 2i+1) = cos(pos / 10000^(2i/d_model))
 ```
 
+#### 5. Encoder-Decoder架构
+- **Encoder**: 多层self-attention + FFN
+- **Decoder**: Masked self-attention + cross-attention + FFN
+- **输出**: 目标语言词汇表上的概率分布
+
 ### 模型参数
 
 | 参数 | 默认值 | 说明 |
@@ -148,9 +151,9 @@ PE(pos, 2i+1) = cos(pos / 10000^(2i/d_model))
 | dropout | 0.1 | Dropout概率 |
 | max_len | 128 | 最大序列长度 |
 
-**参数量统计** (Encoder-only, 默认配置):
-- 总参数: ~8.5M
-- 可训练参数: ~8.5M
+**参数量统计** (默认配置):
+- 总参数: ~15M (取决于词汇表大小)
+- 可训练参数: ~15M
 
 ##  实验设置
 
@@ -171,25 +174,25 @@ PE(pos, 2i+1) = cos(pos / 10000^(2i/d_model))
 
 测试以下变量对性能的影响：
 
-1. **位置编码**: 移除位置编码
-2. **注意力头数**: 2头 vs 4头 vs 8头
-3. **模型层数**: 2层 vs 4层 vs 6层
-4. **Dropout**: 0.0 vs 0.1 vs 0.3
-5. **模型规模**: d_model=128 vs 256
-6. **标签平滑**: 有 vs 无
+1. **注意力头数**: 2头 vs 4头 vs 8头
+2. **模型层数**: 2层 vs 4层 vs 6层
+3. **Dropout**: 0.0 vs 0.1 vs 0.3
+4. **模型规模**: d_model=128 vs 256
+5. **标签平滑**: 有 vs 无
 
 ##  结果示例
 
 训练完成后，`results/` 目录将包含：
 
-- `transformer_encoder_curves.png`: 训练/验证损失曲线
-- `transformer_encoder_log.json`: 详细训练日志
+- `transformer_mt_curves.png`: 训练/验证损失曲线
+- `transformer_mt_log.json`: 详细训练日志
 - `ablation_results.csv`: 消融实验结果表格
 - `ablation_comparison.png`: 消融实验对比图
 
-**预期结果** (WikiText-2, Encoder-only):
-- Test Loss: ~4.5-5.0
-- Test Perplexity: ~90-150
+**预期结果** (IWSLT2017 EN-DE):
+- Test Loss: ~3.5-4.5
+- Test Perplexity: ~30-90
+- BLEU分数: ~15-25 (取决于训练时长和模型大小)
 
 ##  硬件要求
 
@@ -199,14 +202,14 @@ PE(pos, 2i+1) = cos(pos / 10000^(2i/d_model))
 - 存储: 2GB
 
 **推荐配置**:
-- GPU: NVIDIA GPU with 4GB+ VRAM (CUDA支持)
+- GPU: NVIDIA GPU with 6GB+ VRAM (CUDA支持)
 - CPU: 8核
 - 内存: 16GB
 - 存储: 5GB
 
 **训练时间估计** (默认配置):
-- CPU: ~4-6小时/20 epochs
-- GPU (RTX 3090): ~30-45分钟/20 epochs
+- CPU: ~6-10小时/20 epochs
+- GPU (RTX 3090): ~1-2小时/20 epochs
 
 ##  完整命令行示例
 
@@ -219,10 +222,9 @@ pip install -r requirements.txt
 # 2. 下载数据
 python scripts/download_data.py
 
-# 3. 训练Encoder模型 (可复现)
+# 3. 训练模型 (可复现)
 python src/train.py \
   --data_dir data \
-  --mode encoder \
   --d_model 256 \
   --n_heads 4 \
   --n_layers 4 \
@@ -235,28 +237,19 @@ python src/train.py \
   --clip_grad 1.0 \
   --label_smoothing 0.1 \
   --seed 42 \
-  --exp_name transformer_encoder
+  --exp_name transformer_mt
 
-# 4. 训练Encoder-Decoder模型
-python src/train.py \
+# 4. 运行消融实验
+python src/ablation.py \
   --data_dir data \
-  --mode seq2seq \
   --d_model 256 \
   --n_heads 4 \
   --n_layers 4 \
   --d_ff 1024 \
   --dropout 0.1 \
   --batch_size 64 \
-  --epochs 20 \
-  --lr 0.0001 \
-  --seed 42 \
-  --exp_name transformer_seq2seq
-
-# 5. 运行消融实验
-python src/ablation.py \
-  --data_dir data \
-  --mode encoder \
   --epochs 15 \
+  --lr 0.0001 \
   --seed 42
 ```
 
@@ -294,11 +287,32 @@ class MultiHeadAttention(nn.Module):
         return self.W_O(output)
 ```
 
-##  信息
+### Encoder-Decoder架构
 
+```python
+class Transformer(nn.Module):
+    def forward(self, src, tgt):
+        # 创建masks
+        src_mask = self.make_src_mask(src)
+        tgt_mask = self.make_tgt_mask(tgt)  # look-ahead mask
+        cross_mask = self.make_cross_mask(src, tgt)
+        
+        # Encoder
+        enc_output = self.encode(src, src_mask)
+        
+        # Decoder
+        dec_output = self.decode(tgt, enc_output, cross_mask, tgt_mask)
+        
+        # 输出层
+        output = self.fc_out(dec_output)
+        return output
+```
+
+##  信息
 
 - **课程**: 大模型基础与应用
 - **学期**: 2025年秋季
+- **任务**: 期中作业 - Transformer从零实现
 
 ##  许可证
 
@@ -306,8 +320,9 @@ MIT License
 
 ##  致谢
 
-感谢Salesforce Research提供WikiText-2数据集，感谢PyTorch团队提供优秀的深度学习框架。
+感谢IWSLT组织提供机器翻译数据集，感谢PyTorch团队提供优秀的深度学习框架，感谢Hugging Face提供便捷的数据集访问接口。
+
 
 ---
 
-**最后更新**: 2025年10月
+**最后更新**: 2025年11月

@@ -1,6 +1,6 @@
 """
 数据加载和预处理模块
-支持WikiText-2数据集
+支持IWSLT2017 EN-DE机器翻译数据集
 """
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -73,68 +73,50 @@ class Vocabulary:
         return ' '.join(words)
 
 
-class TextDataset(Dataset):
-    """文本数据集类"""
+class TranslationDataset(Dataset):
+    """机器翻译数据集类 (Encoder-Decoder)"""
     
-    def __init__(self, sentences, vocab, max_len=128, mode='encoder'):
+    def __init__(self, src_sentences, tgt_sentences, src_vocab, tgt_vocab, max_len=128):
         """
         Args:
-            sentences: 句子列表
-            vocab: 词汇表对象
+            src_sentences: 源语言句子列表 (English)
+            tgt_sentences: 目标语言句子列表 (German)
+            src_vocab: 源语言词汇表
+            tgt_vocab: 目标语言词汇表
             max_len: 最大序列长度
-            mode: 'encoder' 或 'seq2seq'
         """
-        self.sentences = sentences
-        self.vocab = vocab
+        assert len(src_sentences) == len(tgt_sentences), "源语言和目标语言句子数量必须相同"
+        
+        self.src_sentences = src_sentences
+        self.tgt_sentences = tgt_sentences
+        self.src_vocab = src_vocab
+        self.tgt_vocab = tgt_vocab
         self.max_len = max_len
-        self.mode = mode
     
     def __len__(self):
-        return len(self.sentences)
+        return len(self.src_sentences)
     
     def __getitem__(self, idx):
-        sentence = self.sentences[idx]
+        src_sentence = self.src_sentences[idx]
+        tgt_sentence = self.tgt_sentences[idx]
         
-        if self.mode == 'encoder':
-            # Encoder-only模式: 用于语言建模
-            indices = self.vocab.sentence_to_indices(sentence, add_eos=True)
-            
-            # 截断
-            if len(indices) > self.max_len:
-                indices = indices[:self.max_len]
-            
-            # 输入是去掉最后一个token
-            # 目标是去掉第一个token (预测下一个词)
-            src = torch.tensor(indices[:-1], dtype=torch.long)
-            tgt = torch.tensor(indices[1:], dtype=torch.long)
-            
-            return src, tgt
+        # 源序列: 只加<eos>
+        src_indices = self.src_vocab.sentence_to_indices(src_sentence, add_eos=True)
         
-        elif self.mode == 'seq2seq':
-            # Seq2seq模式 (这里简化为copy任务用于演示)
-            src_indices = self.vocab.sentence_to_indices(sentence, add_eos=True)
-            tgt_indices = self.vocab.sentence_to_indices(sentence, add_sos=True, add_eos=True)
-            
-            if len(src_indices) > self.max_len:
-                src_indices = src_indices[:self.max_len]
-            if len(tgt_indices) > self.max_len:
-                tgt_indices = tgt_indices[:self.max_len]
-            
-            src = torch.tensor(src_indices, dtype=torch.long)
-            tgt = torch.tensor(tgt_indices, dtype=torch.long)
-            
-            return src, tgt[:-1], tgt[1:]  # src, tgt_input, tgt_output
-
-
-def collate_fn_encoder(batch):
-    """Encoder模式的batch处理函数"""
-    srcs, tgts = zip(*batch)
-    
-    # Padding
-    srcs_padded = pad_sequence(srcs, batch_first=True, padding_value=0)
-    tgts_padded = pad_sequence(tgts, batch_first=True, padding_value=0)
-    
-    return srcs_padded, tgts_padded
+        # 目标序列: 加<sos>和<eos>
+        tgt_indices = self.tgt_vocab.sentence_to_indices(tgt_sentence, add_sos=True, add_eos=True)
+        
+        # 截断
+        if len(src_indices) > self.max_len:
+            src_indices = src_indices[:self.max_len]
+        if len(tgt_indices) > self.max_len:
+            tgt_indices = tgt_indices[:self.max_len]
+        
+        src = torch.tensor(src_indices, dtype=torch.long)
+        tgt = torch.tensor(tgt_indices, dtype=torch.long)
+        
+        # 返回: src, tgt_input (<sos>...),  tgt_output (...<eos>)
+        return src, tgt[:-1], tgt[1:]
 
 
 def collate_fn_seq2seq(batch):
@@ -149,78 +131,96 @@ def collate_fn_seq2seq(batch):
     return srcs_padded, tgt_inputs_padded, tgt_outputs_padded
 
 
-def load_wikitext2(data_dir='data'):
-    """加载WikiText-2数据集"""
-    train_file = os.path.join(data_dir, 'wiki.train.tokens')
-    valid_file = os.path.join(data_dir, 'wiki.valid.tokens')
-    test_file = os.path.join(data_dir, 'wiki.test.tokens')
+def load_iwslt2017(data_dir='data'):
+    """加载IWSLT2017 EN-DE数据集"""
     
     def read_file(file_path):
         sentences = []
         with open(file_path, 'r', encoding='utf-8') as f:
             for line in f:
                 line = line.strip()
-                # 跳过空行和标题行
-                if line and not line.startswith('='):
+                if line:  # 跳过空行
                     sentences.append(line.lower())
         return sentences
     
-    train_sentences = read_file(train_file)
-    valid_sentences = read_file(valid_file)
-    test_sentences = read_file(test_file)
+    # 读取源语言 (English)
+    train_src = read_file(os.path.join(data_dir, 'train.en'))
+    valid_src = read_file(os.path.join(data_dir, 'valid.en'))
+    test_src = read_file(os.path.join(data_dir, 'test.en'))
     
-    return train_sentences, valid_sentences, test_sentences
+    # 读取目标语言 (German)
+    train_tgt = read_file(os.path.join(data_dir, 'train.de'))
+    valid_tgt = read_file(os.path.join(data_dir, 'valid.de'))
+    test_tgt = read_file(os.path.join(data_dir, 'test.de'))
+    
+    return (train_src, train_tgt), (valid_src, valid_tgt), (test_src, test_tgt)
 
 
-def prepare_data(data_dir='data', vocab_path='data/vocab.pkl', 
-                 min_freq=2, max_len=128, mode='encoder'):
-    """准备数据和词汇表"""
+def prepare_data(data_dir='data', 
+                 src_vocab_path='data/vocab_en.pkl',
+                 tgt_vocab_path='data/vocab_de.pkl',
+                 min_freq=2, max_len=128):
+    """准备机器翻译数据和词汇表"""
     
     # 加载数据
-    print("正在加载WikiText-2数据集...")
-    train_sentences, valid_sentences, test_sentences = load_wikitext2(data_dir)
+    print("正在加载IWSLT2017 EN-DE数据集...")
+    (train_src, train_tgt), (valid_src, valid_tgt), (test_src, test_tgt) = load_iwslt2017(data_dir)
     
-    print(f"训练集: {len(train_sentences)} 句")
-    print(f"验证集: {len(valid_sentences)} 句")
-    print(f"测试集: {len(test_sentences)} 句")
+    print(f"训练集: {len(train_src)} 句对")
+    print(f"验证集: {len(valid_src)} 句对")
+    print(f"测试集: {len(test_src)} 句对")
     
-    # 构建或加载词汇表
-    if os.path.exists(vocab_path):
-        print(f"从 {vocab_path} 加载词汇表...")
-        with open(vocab_path, 'rb') as f:
-            vocab = pickle.load(f)
+    # 构建或加载源语言词汇表 (English)
+    if os.path.exists(src_vocab_path):
+        print(f"从 {src_vocab_path} 加载源语言词汇表...")
+        with open(src_vocab_path, 'rb') as f:
+            src_vocab = pickle.load(f)
     else:
-        print("构建词汇表...")
-        vocab = Vocabulary()
-        vocab.build_from_sentences(train_sentences, min_freq=min_freq)
+        print("构建源语言词汇表 (English)...")
+        src_vocab = Vocabulary()
+        src_vocab.build_from_sentences(train_src, min_freq=min_freq)
         
-        # 保存词汇表
-        os.makedirs(os.path.dirname(vocab_path), exist_ok=True)
-        with open(vocab_path, 'wb') as f:
-            pickle.dump(vocab, f)
-        print(f"词汇表已保存到 {vocab_path}")
+        os.makedirs(os.path.dirname(src_vocab_path), exist_ok=True)
+        with open(src_vocab_path, 'wb') as f:
+            pickle.dump(src_vocab, f)
+        print(f"源语言词汇表已保存到 {src_vocab_path}")
     
-    print(f"词汇表大小: {vocab.n_words}")
+    print(f"源语言词汇表大小: {src_vocab.n_words}")
+    
+    # 构建或加载目标语言词汇表 (German)
+    if os.path.exists(tgt_vocab_path):
+        print(f"从 {tgt_vocab_path} 加载目标语言词汇表...")
+        with open(tgt_vocab_path, 'rb') as f:
+            tgt_vocab = pickle.load(f)
+    else:
+        print("构建目标语言词汇表 (German)...")
+        tgt_vocab = Vocabulary()
+        tgt_vocab.build_from_sentences(train_tgt, min_freq=min_freq)
+        
+        os.makedirs(os.path.dirname(tgt_vocab_path), exist_ok=True)
+        with open(tgt_vocab_path, 'wb') as f:
+            pickle.dump(tgt_vocab, f)
+        print(f"目标语言词汇表已保存到 {tgt_vocab_path}")
+    
+    print(f"目标语言词汇表大小: {tgt_vocab.n_words}")
     
     # 创建数据集
-    train_dataset = TextDataset(train_sentences, vocab, max_len, mode)
-    valid_dataset = TextDataset(valid_sentences, vocab, max_len, mode)
-    test_dataset = TextDataset(test_sentences, vocab, max_len, mode)
+    train_dataset = TranslationDataset(train_src, train_tgt, src_vocab, tgt_vocab, max_len)
+    valid_dataset = TranslationDataset(valid_src, valid_tgt, src_vocab, tgt_vocab, max_len)
+    test_dataset = TranslationDataset(test_src, test_tgt, src_vocab, tgt_vocab, max_len)
     
-    return train_dataset, valid_dataset, test_dataset, vocab
+    return train_dataset, valid_dataset, test_dataset, src_vocab, tgt_vocab
 
 
 def get_data_loaders(train_dataset, valid_dataset, test_dataset, 
-                    batch_size=32, mode='encoder', num_workers=0):
+                    batch_size=32, num_workers=0):
     """创建数据加载器"""
-    
-    collate_fn = collate_fn_encoder if mode == 'encoder' else collate_fn_seq2seq
     
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
-        collate_fn=collate_fn,
+        collate_fn=collate_fn_seq2seq,
         num_workers=num_workers,
         pin_memory=True
     )
@@ -229,7 +229,7 @@ def get_data_loaders(train_dataset, valid_dataset, test_dataset,
         valid_dataset,
         batch_size=batch_size,
         shuffle=False,
-        collate_fn=collate_fn,
+        collate_fn=collate_fn_seq2seq,
         num_workers=num_workers,
         pin_memory=True
     )
@@ -238,7 +238,7 @@ def get_data_loaders(train_dataset, valid_dataset, test_dataset,
         test_dataset,
         batch_size=batch_size,
         shuffle=False,
-        collate_fn=collate_fn,
+        collate_fn=collate_fn_seq2seq,
         num_workers=num_workers,
         pin_memory=True
     )
@@ -248,9 +248,10 @@ def get_data_loaders(train_dataset, valid_dataset, test_dataset,
 
 if __name__ == '__main__':
     # 测试数据加载
-    train_dataset, valid_dataset, test_dataset, vocab = prepare_data(
+    train_dataset, valid_dataset, test_dataset, src_vocab, tgt_vocab = prepare_data(
         data_dir='../data',
-        vocab_path='../data/vocab.pkl'
+        src_vocab_path='../data/vocab_en.pkl',
+        tgt_vocab_path='../data/vocab_de.pkl'
     )
     
     train_loader, valid_loader, test_loader = get_data_loaders(
@@ -258,9 +259,10 @@ if __name__ == '__main__':
     )
     
     # 查看一个batch
-    for src, tgt in train_loader:
+    for src, tgt_in, tgt_out in train_loader:
         print(f"Source shape: {src.shape}")
-        print(f"Target shape: {tgt.shape}")
-        print(f"Source example: {vocab.indices_to_sentence(src[0].tolist())}")
-        print(f"Target example: {vocab.indices_to_sentence(tgt[0].tolist())}")
+        print(f"Target input shape: {tgt_in.shape}")
+        print(f"Target output shape: {tgt_out.shape}")
+        print(f"Source example (EN): {src_vocab.indices_to_sentence(src[0].tolist())}")
+        print(f"Target example (DE): {tgt_vocab.indices_to_sentence(tgt_out[0].tolist())}")
         break
