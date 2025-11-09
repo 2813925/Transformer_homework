@@ -28,6 +28,7 @@ transformer_project/
 ├── results/               # 训练结果、曲线图
 ├── checkpoints/           # 模型检查点
 ├── data/                  # 数据集目录
+├── de-en/
 ├── requirements.txt       # 依赖包
 └── README.md             # 本文件
 ```
@@ -188,11 +189,21 @@ PE(pos, 2i+1) = cos(pos / 10000^(2i/d_model))
 - `transformer_mt_log.json`: 详细训练日志
 - `ablation_results.csv`: 消融实验结果表格
 - `ablation_comparison.png`: 消融实验对比图
+- `ablation_baseline_curves.png`
+- `ablation_fewer_heads_curves.png`
+- `ablation_fewer_layers_curves.png`
+- `ablation_higher_dropout_curves.png`
+- `ablation_more_heads_curves.png`
+- `ablation_more_layers_curves.png`
+- `ablation_no_dropout_curves.png`
+- `ablation_no_label_smoothing_curves.png`
+- `ablation_smaller_model_curves.png`
 
-**预期结果** (IWSLT2017 EN-DE):
+
+**结果** (IWSLT2017 EN-DE):
 - Test Loss: ~3.5-4.5
 - Test Perplexity: ~30-90
-- BLEU分数: ~15-25 (取决于训练时长和模型大小)
+- BLEU分数: ~15-25 
 
 ##  硬件要求
 
